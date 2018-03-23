@@ -33,7 +33,7 @@ void sim_thread_main(void* arg) {
 
 void simmem_t::main() {
 
-    std::unique_ptr<Variane_wrapped> top(new Variane_wrapped);
+    std::unique_ptr<Variane_nexys4ddr> top(new Variane_nexys4ddr);
     std::unique_ptr<VerilatedVcdC> tfp(new VerilatedVcdC);
 
     if (this->vcd_file != NULL) {
@@ -42,13 +42,8 @@ void simmem_t::main() {
       tfp->open (this->vcd_file);
     }
 
-    top->core_id_i = 0;
-    top->cluster_id_i = 0;
-    top->rst_ni = 0;
-    top->fetch_enable_i = 0;
-    top->boot_addr_i = 0x80000000;
-    top->flush_req_i = 0;
-
+    top->rst_top = 0;
+    top->i_dip = 1;
 
     while (!Verilated::gotFinish()) {
 
@@ -57,20 +52,19 @@ void simmem_t::main() {
       }
 
       if (main_time > 40) {
-          top->rst_ni = 1; // de-assert reset
-          top->fetch_enable_i = 1;
+          top->rst_top = 1; // de-assert reset
       }
 
       if ((main_time % 10) == 0) {
-          top->clk_i = 1; // toggle clock
+          top->clk_p = 1; // toggle clock
       }
 
       // Apply
       if ((main_time % 10) == 8) {
-        if (!flush_req.empty() && !top->flushing_o) {
+        if (!flush_req.empty()) {
           flush_req.pop();
           flushing.push(true);
-          top->flush_req_i = 1;
+          //          top->flush_req_i = 1;
         }
       }
 
@@ -78,12 +72,12 @@ void simmem_t::main() {
       if ((main_time % 10) == 1) {
         if (!flushing.empty()) {
           flushing.pop();
-          top->flush_req_i = 0;
+          //          top->flush_req_i = 0;
         }
       }
 
       if ((main_time % 10) == 6) {
-          top->clk_i = 0;
+          top->clk_p = 0;
       }
 
       if ((main_time % 10) == 0) {

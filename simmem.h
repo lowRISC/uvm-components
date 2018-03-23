@@ -18,11 +18,11 @@
 
 #ifndef __HTIF_SIMMEM_H
 #define __HTIF_SIMMEM_H
-#include "Variane_wrapped.h"
+#include "Variane_nexys4ddr.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 #include "svdpi.h"
-#include "Variane_wrapped__Dpi.h"
+#include "Variane_nexys4ddr__Dpi.h"
 
 #include <map>
 #include <fesvr/htif.h>
