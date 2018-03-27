@@ -16,7 +16,7 @@
 // under the License.
 
 #include "svdpi.h"
-#include "Variane_wrapped__Dpi.h"
+#include "Variane_nexys4ddr__Dpi.h"
 
 #include <stdio.h>
 #include "simmem.h"
@@ -75,8 +75,10 @@ int main(int argc, char **argv) {
 
   const char* vcd_file = NULL;
   bool dump_perf = false;
-
   option_parser_t parser;
+  
+  Verilated::commandArgs(argc,argv);
+
   parser.help(&help);
   parser.option('h', 0, 0, [&](const char* s){help();});
   parser.option('p', 0, 0, [&](const char* s){dump_perf = true;});

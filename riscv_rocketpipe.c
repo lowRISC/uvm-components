@@ -16,6 +16,7 @@
 
 #include "../vc_hdrs.h"
 #include "l3riscv.h"
+#include "riscv_ffi.h"
 
 static int lib_is_opened = 0;
 
@@ -438,7 +439,7 @@ static void dump_log(FILE *fd, commit_t *ptr)
   else if (++tail >= lencrnt)
     {
       lencrnt *= 2;
-      instrns = realloc(instrns, lencrnt*sizeof(commit_t));
+      instrns = (commit_t *)realloc(instrns, lencrnt*sizeof(commit_t));
     }
 }
 
@@ -457,7 +458,7 @@ static void rocketlog_main(const char *elf)
   tohost = l3riscv_mem_get_tohost_addr();
   fprintf(stderr, "Tohost address in isatest = %.016lX\n", tohost);
   lencrnt = lenmax;
-  instrns = malloc(lencrnt*sizeof(commit_t));
+  instrns = (commit_t *)malloc(lencrnt*sizeof(commit_t));
   csr_table[CSR_MISA] = 0;
   csr_table[0xf10] = 0;
   csr_table[CSR_STVEC] = 0;
@@ -466,7 +467,7 @@ static void rocketlog_main(const char *elf)
   csr_table[CSR_MEPC] = 0;
 }
 
-unsigned char pipe_init(const char* s)
+int pipe_init(const char* s)
 {
   char *basename, path[256], env[256];
   int len = readlink(s, path, sizeof(path));
@@ -496,7 +497,7 @@ unsigned char pipe_init(const char* s)
     fprintf(stderr, "+readmemh=arg should end in .hex\n");
 }
 
-unsigned char pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
+int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
                      long long arg6, long long arg7, long long arg8, long long arg9, long long arg10, 
                      long long arg11, long long arg12, long long arg13, long long arg14, long long arg15,
                      long long arg16, long long arg17, long long arg18, long long arg19, long long arg20, 
@@ -616,7 +617,7 @@ unsigned char pipe28(long long arg1, long long arg2, long long arg3, long long a
           if (!notified)
             {
               notified = 1;
-              fprintf(stderr, "Cycle count reached %d with no further commits\n", cycles);
+              fprintf(stderr, "Cycle count reached %ld with no further commits\n", cycles);
               l3riscv_done();
               exit(0);
             }
