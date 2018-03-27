@@ -14,8 +14,7 @@
 #include <values.h>    // For Linux
 #endif
 
-#define PART_OF_L3RISCV 1
-#include "riscv_ffi.h"
+#include "../vc_hdrs.h"
 #include "l3riscv.h"
 
 static int lib_is_opened = 0;
@@ -71,7 +70,10 @@ const char *fmtnam[] = {
 static int head = 0;
 static int tail = 0;
 static int lencrnt = 0;
+static int terminating = 0;
+static int notified = 0;
 static commit_t *instrns;
+static uint64_t cycles, commit_cycles;
 static uint64_t regs[32];
 static uint64_t csr_table[4095];
 static fmt_t get_fmt(opcode_t op)
@@ -113,6 +115,7 @@ static fmt_t get_fmt(opcode_t op)
       fmt = fmt_SB;
       break;
     case op_csrrc:
+    case op_csrrci:
     case op_csrrw:
     case op_csrrs:
       fmt = fmt_I;
@@ -161,6 +164,7 @@ static fmt_t get_fmt(opcode_t op)
     case op_xori:
     case op_slli:
     case op_srli:
+    case op_srliw:
     case op_srai:
       fmt = fmt_I;
       break;
@@ -398,7 +402,8 @@ void interp_log(commit_t *ptr)
     {
       printf("**TRACE:op[%ld] => %s(%d)\n", ptr->time, ptr->found->nam, ptr->found->op);
       fflush(stdout);
-      rslt = l3riscv_verify(cpu,
+      if (!terminating)
+        rslt = l3riscv_verify(cpu,
                             cmd,
                             exc_taken,
                             pc,
@@ -491,13 +496,16 @@ unsigned char pipe_init(const char* s)
     fprintf(stderr, "+readmemh=arg should end in .hex\n");
 }
 
-unsigned char pipe25(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
+unsigned char pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
                      long long arg6, long long arg7, long long arg8, long long arg9, long long arg10, 
                      long long arg11, long long arg12, long long arg13, long long arg14, long long arg15,
                      long long arg16, long long arg17, long long arg18, long long arg19, long long arg20, 
-                     long long arg21, long long arg22, long long arg23, long long arg24, long long arg25)
+                     long long arg21, long long arg22, long long arg23, long long arg24, long long arg25,
+                     long long arg26, long long arg27, long long arg28)
 {
   commit_t *ptr = instrns+tail;
+  uint64_t commit_stage_i_exception_o;
+  uint64_t commit_instr_id_commit_ex_cause;
   uint64_t flush_unissued_instr_ctrl_id;
   uint64_t flush_ctrl_ex;
   uint64_t id_stage_i_compressed_decoder_i_instr_o;
@@ -514,63 +522,112 @@ unsigned char pipe25(long long arg1, long long arg2, long long arg3, long long a
   uint64_t ex_stage_i_lsu_i_i_load_unit_kill_req_o;
   uint64_t ex_stage_i_lsu_i_i_load_unit_paddr_i;
   uint64_t priv_lvl;
-  (ptr->time) = arg1;
-  (ptr->iaddr) = arg2;
-  (ptr->insn0) = arg3;
-  flush_unissued_instr_ctrl_id = arg4;
-  flush_ctrl_ex = arg5;
-  id_stage_i_compressed_decoder_i_instr_o = arg6;
-  id_stage_i_instr_realigner_i_fetch_entry_valid_o = arg7;
-  id_stage_i_instr_realigner_i_fetch_ack_i = arg8;
-  issue_stage_i_scoreboard_i_issue_ack_i = arg9;
-  waddr_a_commit_id = arg10;
-  wdata_a_commit_id = arg11;
-  we_a_commit_id = arg12;
-  commit_ack = arg13;
-  ex_stage_i_lsu_i_i_store_unit_store_buffer_i_valid_i = arg14;
-  ex_stage_i_lsu_i_i_store_unit_store_buffer_i_paddr_i = arg15;
-  ex_stage_i_lsu_i_i_load_unit_tag_valid_o = arg16;
-  ex_stage_i_lsu_i_i_load_unit_kill_req_o = arg17;
-  ex_stage_i_lsu_i_i_load_unit_paddr_i = arg18;
-  priv_lvl = arg19;
-  (ptr->rs1) = arg20;
-  (ptr->rs1_rdata) = arg21;
-  (ptr->rs2) = arg22;
-  (ptr->rs2_rdata) = arg23;
-  (ptr->w_reg) = arg24;
-  (ptr->rf_wdata) = arg25;
-  ptr->found = find(ptr->insn0);
-  ptr->valid = 1;
-  checking = 1;
-  if (checking && ptr->found)
+  if (!arg1)
+    cycles = 0;
+  else
     {
-    dump_log(fd, ptr);
-    interp_log(instrns+head);
+      if (arg2)
+        {
+          if (!terminating)
+            commit_cycles = cycles;
+          (ptr->time) = cycles;
+          (ptr->iaddr) = arg3;
+          (ptr->insn0) = arg4;
+          commit_stage_i_exception_o = arg5;
+          commit_instr_id_commit_ex_cause = arg6;
+          flush_unissued_instr_ctrl_id = arg7;
+          flush_ctrl_ex = arg8;
+          id_stage_i_compressed_decoder_i_instr_o = arg9;
+          id_stage_i_instr_realigner_i_fetch_entry_valid_o = arg10;
+          id_stage_i_instr_realigner_i_fetch_ack_i = arg11;
+          issue_stage_i_scoreboard_i_issue_ack_i = arg12;
+          waddr_a_commit_id = arg13;
+          wdata_a_commit_id = arg14;
+          we_a_commit_id = arg15;
+          commit_ack = arg16;
+          ex_stage_i_lsu_i_i_store_unit_store_buffer_i_valid_i = arg17;
+          ex_stage_i_lsu_i_i_store_unit_store_buffer_i_paddr_i = arg18;
+          ex_stage_i_lsu_i_i_load_unit_tag_valid_o = arg19;
+          ex_stage_i_lsu_i_i_load_unit_kill_req_o = arg20;
+          ex_stage_i_lsu_i_i_load_unit_paddr_i = arg21;
+          priv_lvl = arg22;
+          (ptr->rs1) = arg23;
+          (ptr->rs1_rdata) = arg24;
+          (ptr->rs2) = arg25;
+          (ptr->rs2_rdata) = arg26;
+          (ptr->w_reg) = arg27;
+          (ptr->rf_wdata) = arg28;
+          if (commit_stage_i_exception_o)
+            {
+              uint32_t rslt = 0;
+              switch(commit_instr_id_commit_ex_cause)
+                {
+                case CAUSE_MISALIGNED_FETCH:    printf("CAUSE_MISALIGNED_FETCH\n"); break;
+                case CAUSE_FETCH_ACCESS:        printf("CAUSE_FETCH_ACCESS\n"); break;
+                case CAUSE_ILLEGAL_INSTRUCTION: printf("CAUSE_ILLEGAL_INSTRUCTION\n"); break;
+                case CAUSE_BREAKPOINT:          printf("CAUSE_BREAKPOINT\n"); break;
+                case CAUSE_MISALIGNED_LOAD:     printf("CAUSE_MISALIGNED_LOAD\n"); break;
+                case CAUSE_LOAD_ACCESS:         printf("CAUSE_LOAD_ACCESS\n"); break;
+                case CAUSE_MISALIGNED_STORE:    printf("CAUSE_MISALIGNED_STORE\n"); break;
+                case CAUSE_STORE_ACCESS:        printf("CAUSE_STORE_ACCESS\n"); break;
+                case CAUSE_USER_ECALL:          printf("CAUSE_USER_ECALL\n"); break;
+                case CAUSE_SUPERVISOR_ECALL:    printf("CAUSE_SUPERVISOR_ECALL\n"); break;
+                case CAUSE_HYPERVISOR_ECALL:    printf("CAUSE_HYPERVISOR_ECALL\n"); break;
+                case CAUSE_MACHINE_ECALL:       printf("CAUSE_MACHINE_ECALL\n"); break;
+                case CAUSE_FETCH_PAGE_FAULT:    printf("CAUSE_FETCH_PAGE_FAULT\n"); break;
+                case CAUSE_LOAD_PAGE_FAULT:     printf("CAUSE_LOAD_PAGE_FAULT\n"); break;
+                case CAUSE_STORE_PAGE_FAULT:    printf("CAUSE_STORE_PAGE_FAULT\n"); break;
+                default:                        printf("**Exception cause %lX\n", commit_instr_id_commit_ex_cause);
+                }
+              fflush(stdout);
+              terminating = 1;
+#if 0
+              rslt = l3riscv_verify(ptr->hartid,
+                            0,
+                            1,
+                            ptr->iaddr,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0);
+#endif              
+            }
+          else
+            {
+              if (!ptr->insn0)
+                {
+                  fprintf(stderr, "The instruction logged was 0\n");
+                  abort();
+                }
+              ptr->found = find(ptr->insn0);
+              ptr->valid = 1;
+              checking = 1;
+              if (checking && ptr->found)
+                {
+                dump_log(fd, ptr);
+                interp_log(instrns+head);
+                }
+            }
+        }
+      if (++cycles > commit_cycles+10000)
+        {
+          if (!notified)
+            {
+              notified = 1;
+              fprintf(stderr, "Cycle count reached %d with no further commits\n", cycles);
+              l3riscv_done();
+              exit(0);
+            }
+        }
     }
 }
 
-unsigned char pipe5(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5)
-{
-  commit_t *ptr = instrns+tail;
-  uint64_t flush_unissued_instr_ctrl_id;
-  uint64_t flush_ctrl_ex;
-  (ptr->time) = arg1;
-  (ptr->iaddr) = arg2;
-  (ptr->insn0) = arg3;
-  flush_unissued_instr_ctrl_id = arg4;
-  flush_ctrl_ex = arg5;
-  ptr->found = find(ptr->insn0);
-  ptr->valid = 1;
-  checking = 1;
-  if (checking && ptr->found)
-    {
-    dump_log(fd, ptr);
-    interp_log(instrns+head);
-    }
-}
-
+#if 0
 void l3_finish(void)
 {
   fprintf(stderr, "%s: Normal end of execution logfile\n", stem);
   l3riscv_done();
 }
+#endif
