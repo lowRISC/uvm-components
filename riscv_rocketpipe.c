@@ -74,7 +74,7 @@ static int lencrnt = 0;
 static int terminating = 0;
 static int notified = 0;
 static commit_t *instrns;
-static uint64_t cycles, commit_cycles;
+static uint64_t cycles, commit_cycles = 999999;
 static uint64_t regs[32];
 static uint64_t csr_table[4095];
 static fmt_t get_fmt(opcode_t op)
@@ -164,6 +164,7 @@ static fmt_t get_fmt(opcode_t op)
     case op_ori:
     case op_xori:
     case op_slli:
+    case op_slliw:
     case op_srli:
     case op_srliw:
     case op_srai:
@@ -172,6 +173,10 @@ static fmt_t get_fmt(opcode_t op)
     case op_lui:
     case op_auipc:
       fmt = fmt_U;
+      break;
+    case op_fence_i:
+    case op_sfence_vma:
+      fmt = fmt_PRIV;
       break;
     default:
       fprintf(stderr, "Unhandled instruction %s at line %d\n", encodings[op].nam, __LINE__);
@@ -232,7 +237,7 @@ static uint64_t lookahead(int offset, int reg)
         }
       ++i;
     }
-  return 0xDEADBEEF;
+  return regs[reg];
 }
 
 static const char *stem;
@@ -278,9 +283,9 @@ void interp_log(commit_t *ptr)
       abort();
     }
   printf("**DISASS[%ld]:%s(%s) ", ptr->time, ptr->found->nam, fmtnam[fmt]);
-  if (rd) printf("r%d[%lx] ", rd, ptr->rf_wdata);
-  if (reg1) printf("r%d[%lx] ", reg1, regs[reg1]);
-  if (reg2) printf("r%d[%lx] ", reg2, regs[reg2]);
+  if (rd) printf("rd=%d[%lx] ", rd, ptr->rf_wdata);
+  if (reg1) printf("r1=%d[%lx] ", reg1, regs[reg1]);
+  if (reg2) printf("r2=%d[%lx] ", reg2, regs[reg2]);
   if (imm && (fmt==fmt_S)) printf("@(%x) ", imm);
   printf("\n");
   cpu = ptr->hartid;
@@ -293,8 +298,6 @@ void interp_log(commit_t *ptr)
   fpdata = 0;
   verbosity = 0;
   addr = ptr->iaddr+4;
-  if (ptr->w_reg < 32)
-    regs[ptr->w_reg] = ptr->rf_wdata;
   switch(ptr->found->op)
     {
     case op_mul:
@@ -321,9 +324,6 @@ void interp_log(commit_t *ptr)
       data1 = ptr->rf_wdata;
       break;
     case op_jalr:
-    case op_uret:
-    case op_sret:
-    case op_mret:
     case op_beq:
     case op_bne:
     case op_blt:
@@ -334,12 +334,20 @@ void interp_log(commit_t *ptr)
       addr = ptr[1].iaddr;
       data1 = ptr->rf_wdata;
       break;
+    case op_uret:
+    case op_sret:
+    case op_mret:
+      addr = ptr->rf_wdata;
+      break;
     case op_csrrw:
     case op_csrrs:
     case op_csrrwi:
       addr = imm;
       data1 = csr_table[imm];
-      data2 = regs[reg1];
+      if (ptr->w_reg == reg1)
+        data2 = ptr->rs1_rdata;
+      else
+        data2 = regs[reg1];
       csr_table[imm] = regs[reg1];
       switch(addr)
         {
@@ -353,6 +361,7 @@ void interp_log(commit_t *ptr)
           data1 = 0x0;
           break;
         case CSR_MTVEC:
+          printf("CSR_MTVEC: %lX, %lX, %lX\n", addr, data1, data2);
           break;
         case CSR_MSTATUS:
           data1 = 0x2000;
@@ -391,13 +400,29 @@ void interp_log(commit_t *ptr)
     case op_lhu:
     case op_lw:
     case op_lwu:
-      addr = ptr->rs1_rdata + imm;
-      data1 = lookahead(ptr-instrns+1, rd);
+      printf("**LOAD reg(%d), addr1=%lX, addr2=%lX, addr3=%lX, imm=%d, w_reg=%x\n", reg1, ptr->rs1_rdata, regs[reg1]+imm, ptr->rf_wdata, imm, ptr->w_reg);
+      if ((ptr->w_reg == reg1) && ptr->rf_wdata)
+        {
+        addr = ptr->rs1_rdata + imm;
+        data1 = ptr->rf_wdata;
+        }
+      else if (ptr->w_reg == rd)
+        {
+        addr = regs[reg1] + imm;
+        data1 = ptr->rf_wdata;
+        }
+      else
+        {
+        addr = regs[reg1] + imm;
+        data1 = lookahead(ptr-instrns+1, rd);
+        }
       break;
     default:
       break;
     }
-
+  // It looks like we have the information needed, so submit this instruction and update regs
+  if ((ptr->w_reg > 0) && (ptr->w_reg < 32))
+    regs[ptr->w_reg] = ptr->rf_wdata;
   ++head;
   for (j = 0; j < (ptr->found->op == op_auipc && ptr->iaddr == start ? 2 : 1); j++) // hack alert
     {
@@ -529,7 +554,7 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
     {
       if (arg2)
         {
-          if (!terminating)
+          //          if (!terminating)
             commit_cycles = cycles;
           (ptr->time) = cycles;
           (ptr->iaddr) = arg3;
@@ -561,6 +586,9 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
           if (commit_stage_i_exception_o)
             {
               uint32_t rslt = 0;
+              while (head != tail)
+                interp_log(instrns+head);
+
               switch(commit_instr_id_commit_ex_cause)
                 {
                 case CAUSE_MISALIGNED_FETCH:    printf("CAUSE_MISALIGNED_FETCH\n"); break;
@@ -581,25 +609,26 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
                 default:                        printf("**Exception cause %lX\n", commit_instr_id_commit_ex_cause);
                 }
               fflush(stdout);
-              terminating = 1;
-#if 0
+#if 1
               rslt = l3riscv_verify(ptr->hartid,
                             0,
                             1,
                             ptr->iaddr,
                             0,
                             0,
-                            0,
+                            commit_instr_id_commit_ex_cause,
                             0,
                             0,
                             0);
+#else
+              terminating = 1;
 #endif              
             }
           else
             {
               if (!ptr->insn0)
                 {
-                  fprintf(stderr, "The instruction logged was 0\n");
+                  fprintf(stderr, "Internal error, the instruction logged was 0\n");
                   abort();
                 }
               ptr->found = find(ptr->insn0);
@@ -612,7 +641,7 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
                 }
             }
         }
-      if (++cycles > commit_cycles+10000)
+      if (++cycles > commit_cycles+1000000)
         {
           if (!notified)
             {
