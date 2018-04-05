@@ -19,6 +19,7 @@
 #include "riscv_ffi.h"
 
 static int lib_is_opened = 0;
+static int log_opened = 0;
 
 const char *dummy_argv[] = {
   "libl3riscv.so",
@@ -475,6 +476,7 @@ static void rocketlog_main(const char *elf)
   const char *basename = strrchr(elf, '/');
   stem = basename ? basename+1 : elf;
   sprintf(lognam, "%s_filt.log", stem);
+  log_opened = 1;
   fd = freopen(lognam, "w", stdout);
   l3riscv_open(7, dummy_argv);
   
@@ -522,15 +524,14 @@ int pipe_init(const char* s)
     fprintf(stderr, "+readmemh=arg should end in .hex\n");
 }
 
-int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
+int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
                      long long arg6, long long arg7, long long arg8, long long arg9, long long arg10, 
                      long long arg11, long long arg12, long long arg13, long long arg14, long long arg15,
                      long long arg16, long long arg17, long long arg18, long long arg19, long long arg20, 
                      long long arg21, long long arg22, long long arg23, long long arg24, long long arg25,
-                     long long arg26, long long arg27, long long arg28)
+                     long long arg26, long long arg27)
 {
   commit_t *ptr = instrns+tail;
-  uint64_t commit_stage_i_exception_o;
   uint64_t commit_instr_id_commit_ex_cause;
   uint64_t flush_unissued_instr_ctrl_id;
   uint64_t flush_ctrl_ex;
@@ -547,10 +548,12 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
   uint64_t ex_stage_i_lsu_i_i_load_unit_tag_valid_o;
   uint64_t ex_stage_i_lsu_i_i_load_unit_kill_req_o;
   uint64_t ex_stage_i_lsu_i_i_load_unit_paddr_i;
+  uint64_t commit_instr_ex_tval;
+  uint64_t exception_valid;
   uint64_t priv_lvl;
   if (!arg1)
     cycles = 0;
-  else
+  else if (log_opened)
     {
       if (arg2)
         {
@@ -559,7 +562,7 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
           (ptr->time) = cycles;
           (ptr->iaddr) = arg3;
           (ptr->insn0) = arg4;
-          commit_stage_i_exception_o = arg5;
+          exception_valid = arg5;
           commit_instr_id_commit_ex_cause = arg6;
           flush_unissued_instr_ctrl_id = arg7;
           flush_ctrl_ex = arg8;
@@ -572,18 +575,17 @@ int pipe28(long long arg1, long long arg2, long long arg3, long long arg4, long 
           we_a_commit_id = arg15;
           commit_ack = arg16;
           ex_stage_i_lsu_i_i_store_unit_store_buffer_i_valid_i = arg17;
-          ex_stage_i_lsu_i_i_store_unit_store_buffer_i_paddr_i = arg18;
-          ex_stage_i_lsu_i_i_load_unit_tag_valid_o = arg19;
-          ex_stage_i_lsu_i_i_load_unit_kill_req_o = arg20;
-          ex_stage_i_lsu_i_i_load_unit_paddr_i = arg21;
-          priv_lvl = arg22;
-          (ptr->rs1) = arg23;
-          (ptr->rs1_rdata) = arg24;
-          (ptr->rs2) = arg25;
-          (ptr->rs2_rdata) = arg26;
-          (ptr->w_reg) = arg27;
-          (ptr->rf_wdata) = arg28;
-          if (commit_stage_i_exception_o)
+          ex_stage_i_lsu_i_i_load_unit_tag_valid_o = arg18;
+          ex_stage_i_lsu_i_i_load_unit_kill_req_o = arg19;
+          ex_stage_i_lsu_i_i_load_unit_paddr_i = arg20;
+          priv_lvl = arg21;
+          (ptr->rs1) = arg22;
+          (ptr->rs1_rdata) = arg23;
+          (ptr->rs2) = arg24;
+          (ptr->rs2_rdata) = arg25;
+          (ptr->w_reg) = arg26;
+          (ptr->rf_wdata) = arg27;
+          if (exception_valid)
             {
               uint32_t rslt = 0;
               while (head != tail)
