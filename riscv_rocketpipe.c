@@ -18,8 +18,8 @@
 #include "l3riscv.h"
 #include "riscv_ffi.h"
 
-static int lib_is_opened = 0;
 static int log_opened = 0;
+static int first_instr;
 
 const char *dummy_argv[] = {
   "libl3riscv.so",
@@ -245,8 +245,8 @@ static const char *stem;
 static int checking = 0;
 static int exit_pending = 0;
 static FILE *fd;
-static uint64_t start = 0;
 static uint64_t tohost = 0;
+static uint64_t max_addr = 0;
 
 void interp_log(commit_t *ptr)
 {
@@ -401,7 +401,7 @@ void interp_log(commit_t *ptr)
     case op_lhu:
     case op_lw:
     case op_lwu:
-      printf("**LOAD reg(%d), addr1=%lX, addr2=%lX, addr3=%lX, imm=%d, w_reg=%x\n", reg1, ptr->rs1_rdata, regs[reg1]+imm, ptr->rf_wdata, imm, ptr->w_reg);
+      printf("**LOAD reg(%d), addr1=%lX, addr2=%lX, addr3=%lX, imm=%d, w_reg=%lx\n", reg1, ptr->rs1_rdata, regs[reg1]+imm, ptr->rf_wdata, imm, ptr->w_reg);
       if ((ptr->w_reg == reg1) && ptr->rf_wdata)
         {
         addr = ptr->rs1_rdata + imm;
@@ -425,7 +425,7 @@ void interp_log(commit_t *ptr)
   if ((ptr->w_reg > 0) && (ptr->w_reg < 32))
     regs[ptr->w_reg] = ptr->rf_wdata;
   ++head;
-  for (j = 0; j < (ptr->found->op == op_auipc && ptr->iaddr == start ? 2 : 1); j++) // hack alert
+  for (j = 0; j < (first_instr ? 2 : 1); j++) // hack alert
     {
       printf("**TRACE:op[%ld] => %s(%d)\n", ptr->time, ptr->found->nam, ptr->found->op);
       fflush(stdout);
@@ -440,7 +440,9 @@ void interp_log(commit_t *ptr)
                             data3,
                             fpdata,
                             verbosity);
+      assert(rslt == 0);
     }
+  first_instr = 0;
 }
 
 static void dump_log(FILE *fd, commit_t *ptr)
@@ -469,21 +471,22 @@ static void dump_log(FILE *fd, commit_t *ptr)
     }
 }
 
-static void rocketlog_main(const char *elf)
+void rocketlog_main(const char *elf)
 {
-  char linbuf[256];
   char lognam[99];
   const char *basename = strrchr(elf, '/');
   stem = basename ? basename+1 : elf;
   sprintf(lognam, "%s_filt.log", stem);
   log_opened = 1;
+  first_instr = 1;
   fd = freopen(lognam, "w", stdout);
   l3riscv_open(7, dummy_argv);
   
   l3riscv_mem_load_elf();
-  start = l3riscv_mem_get_min_addr();
   tohost = l3riscv_mem_get_tohost_addr();
   fprintf(stderr, "Tohost address in isatest = %.016lX\n", tohost);
+  max_addr = l3riscv_mem_get_max_addr();
+  fprintf(stderr, "Max address in test = %.016lX\n", max_addr);
   lencrnt = lenmax;
   instrns = (commit_t *)malloc(lencrnt*sizeof(commit_t));
   csr_table[CSR_MISA] = 0;
@@ -522,6 +525,7 @@ int pipe_init(const char* s)
     }
   else
     fprintf(stderr, "+readmemh=arg should end in .hex\n");
+  return 0;
 }
 
 int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long long arg5,
@@ -622,17 +626,20 @@ int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long 
                             0,
                             0,
                             0);
+              assert(rslt == 0);
 #else
               terminating = 1;
 #endif              
             }
           else
             {
+#if 1
               if (!ptr->insn0)
                 {
                   fprintf(stderr, "Internal error, the instruction logged was 0\n");
                   abort();
                 }
+#endif              
               ptr->found = find(ptr->insn0);
               ptr->valid = 1;
               checking = 1;
@@ -654,6 +661,7 @@ int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long 
             }
         }
     }
+  return 0;
 }
 
 #if 0
@@ -662,4 +670,117 @@ void l3_finish(void)
   fprintf(stderr, "%s: Normal end of execution logfile\n", stem);
   l3riscv_done();
 }
+#endif
+
+#ifdef VERILATOR
+// DESCRIPTION: Verilator: Verilog example module
+//
+// This file ONLY is placed into the Public Domain, for any use,
+// without warranty, 2017 by Wilson Snyder.
+//======================================================================
+
+// Include common routines
+#include <verilated.h>
+
+#include <sys/stat.h>  // mkdir
+
+// Include model header, generated from Verilating "top.v"
+#include "Vtb.h"
+
+// If "verilator --trace" is used, include the tracing class
+#if VM_TRACE
+# include <verilated_vcd_c.h>
+#endif
+
+// Current simulation time (64-bit unsigned)
+vluint64_t main_time = 0;
+// Called by $time in Verilog
+double sc_time_stamp () {
+    return main_time; // Note does conversion to real, to match SystemC
+}
+
+#if VM_TRACE
+// If verilator was invoked with --trace argument,
+// and if at run time passed the +trace argument, turn on tracing
+VerilatedVcdC* tfp = NULL;
+#endif
+
+void flush_trace(void)
+{
+  // Close trace if opened
+#if VM_TRACE
+  if (tfp) { tfp->close(); }
+  tfp = NULL;
+#endif
+}
+
+int main(int argc, char** argv, char** env) {
+    // This is a more complicated example, please also see the simpler examples/hello_world_c.
+
+    // Prevent unused variable warnings
+    if (0 && argc && argv && env) {}
+    // Pass arguments so Verilated code can see them, e.g. $value$plusargs
+    Verilated::commandArgs(argc, argv);
+
+    // Set debug level, 0 is off, 9 is highest presently used
+    Verilated::debug(0);
+
+    // Randomization reset policy
+    Verilated::randReset(2);
+
+    // Construct the Verilated model, from Vtb.h generated from Verilating "top.v"
+    Vtb* top = new Vtb; // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
+
+#if VM_TRACE
+    // If verilator was invoked with --trace argument,
+    // and if at run time passed the +trace argument, turn on tracing
+    const char* flag = Verilated::commandArgsPlusMatch("trace");
+    if (flag && 0==strncmp(flag, "+trace=", 7)) {
+        Verilated::traceEverOn(true);  // Verilator must compute traced signals
+        VL_PRINTF("Enabling waves into %s ...\n", flag+7);
+        tfp = new VerilatedVcdC;
+        top->trace(tfp, 99);  // Trace 99 levels of hierarchy
+        tfp->open(flag+7);  // Open the dump file
+        atexit(flush_trace);
+    }
+#endif
+
+    // Set some inputs
+    top->clk = 0;
+    top->rst = 1;
+    
+    // Simulate until $finish
+    while (!Verilated::gotFinish()) {
+        main_time++;  // Time passes...
+        top->clk = !top->clk;
+
+        if (main_time > 10)
+          top->rst = 0;
+
+        // Evaluate model
+        top->eval();
+#if VM_TRACE
+    if (tfp) { tfp->dump(main_time); }
+#endif
+    }
+
+    // Final model cleanup
+    top->final();
+
+    // flush trace
+    flush_trace();
+    
+    //  Coverage analysis (since test passed)
+#if VM_COVERAGE
+    mkdir("logs", 0777);
+    VerilatedCov::write("logs/coverage.dat");
+#endif
+
+    // Destroy model
+    delete top; top = NULL;
+
+    // Fin
+    exit(0);
+}
+
 #endif

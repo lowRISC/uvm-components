@@ -16,7 +16,7 @@
 // under the License.
 
 #include "svdpi.h"
-#include "Variane_nexys4ddr__Dpi.h"
+// #include "Variane_nexys4ddr__Dpi.h"
 
 #include <stdio.h>
 #include "simmem.h"

@@ -22,7 +22,7 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 #include "svdpi.h"
-#include "Variane_nexys4ddr__Dpi.h"
+// #include "Variane_nexys4ddr__Dpi.h"
 
 #include <map>
 #include <fesvr/htif.h>
