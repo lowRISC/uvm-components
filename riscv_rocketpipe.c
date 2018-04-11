@@ -175,6 +175,7 @@ static fmt_t get_fmt(opcode_t op)
     case op_auipc:
       fmt = fmt_U;
       break;
+    case op_ebreak:
     case op_fence_i:
     case op_sfence_vma:
       fmt = fmt_PRIV;
@@ -283,12 +284,6 @@ void interp_log(commit_t *ptr)
       fprintf(stderr, "Invalid format %d for instruction %s at line %d\n", fmt, ptr->found->nam, __LINE__);
       abort();
     }
-  printf("**DISASS[%ld]:%s(%s) ", ptr->time, ptr->found->nam, fmtnam[fmt]);
-  if (rd) printf("rd=%d[%lx] ", rd, ptr->rf_wdata);
-  if (reg1) printf("r1=%d[%lx] ", reg1, regs[reg1]);
-  if (reg2) printf("r2=%d[%lx] ", reg2, regs[reg2]);
-  if (imm && (fmt==fmt_S)) printf("@(%x) ", imm);
-  printf("\n");
   cpu = ptr->hartid;
   cmd = 0;
   exc_taken = 0;
@@ -421,6 +416,12 @@ void interp_log(commit_t *ptr)
     default:
       break;
     }
+  printf("**DISASS[%ld]:%s(%s) ", ptr->time, ptr->found->nam, fmtnam[fmt]);
+  if (rd) printf("rd=%d[%lx] ", rd, ptr->rf_wdata);
+  if (reg1) printf("r1=%d[%lx] ", reg1, regs[reg1]);
+  if (reg2) printf("r2=%d[%lx] ", reg2, regs[reg2]);
+  if (imm && (fmt==fmt_S)) printf("@(%x) ", imm);
+  printf("\n");
   // It looks like we have the information needed, so submit this instruction and update regs
   if ((ptr->w_reg > 0) && (ptr->w_reg < 32))
     regs[ptr->w_reg] = ptr->rf_wdata;
@@ -592,6 +593,10 @@ int pipe27(long long arg1, long long arg2, long long arg3, long long arg4, long 
           if (exception_valid)
             {
               uint32_t rslt = 0;
+              ptr->found = find(ptr->insn0);
+              ptr->valid = 1;
+              if (ptr->found)
+                dump_log(fd, ptr);
               while (head != tail)
                 interp_log(instrns+head);
 
